@@ -1,11 +1,60 @@
 #include <iostream>
 #include <vector>
+#include <queue>
 #include <omp.h>
+#include <chrono>
 
 using namespace std;
+using namespace std::chrono;
 
-// Parallel BFS using a level-by-level approach
-void parallel_bfs(int start, const vector<vector<int>>& graph) {
+// ------------------- SEQUENTIAL TRAVERSALS -------------------
+
+void sequential_bfs(int start, const vector<vector<int>>& graph, bool print_nodes = false) {
+    int n = graph.size();
+    vector<bool> visited(n, false);
+    queue<int> q;
+
+    q.push(start);
+    visited[start] = true;
+
+    while (!q.empty()) {
+        int u = q.front();
+        q.pop();
+
+        if (print_nodes) cout << u << " ";
+
+        for (int v : graph[u]) {
+            if (!visited[v]) {
+                visited[v] = true;
+                q.push(v);
+            }
+        }
+    }
+    if (print_nodes) cout << endl;
+}
+
+void sequential_dfs_util(int u, const vector<vector<int>>& graph, vector<bool>& visited, bool print_nodes) {
+    visited[u] = true;
+    if (print_nodes) cout << u << " ";
+
+    for (int v : graph[u]) {
+        if (!visited[v]) {
+            sequential_dfs_util(v, graph, visited, print_nodes);
+        }
+    }
+}
+
+void sequential_dfs(int start, const vector<vector<int>>& graph, bool print_nodes = false) {
+    int n = graph.size();
+    vector<bool> visited(n, false);
+    sequential_dfs_util(start, graph, visited, print_nodes);
+    if (print_nodes) cout << endl;
+}
+
+
+// ------------------- PARALLEL TRAVERSALS -------------------
+
+void parallel_bfs(int start, const vector<vector<int>>& graph, bool print_nodes = false) {
     int n = graph.size();
     vector<bool> visited(n, false);
     vector<int> current_level;
@@ -16,17 +65,17 @@ void parallel_bfs(int start, const vector<vector<int>>& graph) {
     while (!current_level.empty()) {
         vector<int> next_level;
 
-        // Process nodes in the current level in parallel
         #pragma omp parallel for
         for (int i = 0; i < current_level.size(); ++i) {
             int u = current_level[i];
             
-            #pragma omp critical
-            {
-                cout << u << " ";
+            if (print_nodes) {
+                #pragma omp critical
+                {
+                    cout << u << " ";
+                }
             }
 
-            // Iterate over all neighbors of node u
             for (int v : graph[u]) {
                 if (!visited[v]) {
                     #pragma omp critical
@@ -39,16 +88,17 @@ void parallel_bfs(int start, const vector<vector<int>>& graph) {
                 }
             }
         }
-        current_level = next_level; // Move to the next depth level
+        current_level = next_level;
     }
-    cout << endl;
+    if (print_nodes) cout << endl;
 }
 
-// Helper function for Parallel DFS using OpenMP tasks
-void parallel_dfs_util(int u, const vector<vector<int>>& graph, vector<bool>& visited) {
-    #pragma omp critical
-    {
-        cout << u << " ";
+void parallel_dfs_util(int u, const vector<vector<int>>& graph, vector<bool>& visited, bool print_nodes) {
+    if (print_nodes) {
+        #pragma omp critical
+        {
+            cout << u << " ";
+        }
     }
 
     for (int v : graph[u]) {
@@ -62,16 +112,14 @@ void parallel_dfs_util(int u, const vector<vector<int>>& graph, vector<bool>& vi
                 }
             }
             if (do_visit) {
-                // Create a task for the new branch
                 #pragma omp task
-                parallel_dfs_util(v, graph, visited);
+                parallel_dfs_util(v, graph, visited, print_nodes);
             }
         }
     }
 }
 
-// Parallel DFS wrapper
-void parallel_dfs(int start, const vector<vector<int>>& graph) {
+void parallel_dfs(int start, const vector<vector<int>>& graph, bool print_nodes = false) {
     int n = graph.size();
     vector<bool> visited(n, false);
     visited[start] = true;
@@ -80,36 +128,71 @@ void parallel_dfs(int start, const vector<vector<int>>& graph) {
     {
         #pragma omp single
         {
-            parallel_dfs_util(start, graph, visited);
+            parallel_dfs_util(start, graph, visited, print_nodes);
         }
-        // Implicit taskwait at the end of the parallel region ensures all tasks finish
     }
-    cout << endl;
+    if (print_nodes) cout << endl;
 }
 
-int main() {
-    int n = 7;
-    vector<vector<int>> graph(n);
+// ------------------- UTILS & MAIN -------------------
 
-    // Creating a simple undirected tree for traversal
+// Helper to measure execution time
+auto measure = [](string name, auto func) {
+    auto start_time = high_resolution_clock::now();
+    func();
+    auto end_time = high_resolution_clock::now();
+    cout << name << ": " << duration_cast<milliseconds>(end_time - start_time).count() << " ms" << endl;
+};
+
+int main() {
+    // 1. SMALL GRAPH (To verify correctness with printing)
+    cout << "=== Verification on Small Graph ===" << endl;
+    int n_small = 7;
+    vector<vector<int>> small_graph(n_small);
     //          0
     //        /   \
     //       1     2
     //      / \   / \
     //     3   4 5   6
-    graph[0] = {1, 2};
-    graph[1] = {0, 3, 4};
-    graph[2] = {0, 5, 6};
-    graph[3] = {1};
-    graph[4] = {1};
-    graph[5] = {2};
-    graph[6] = {2};
+    small_graph[0] = {1, 2};
+    small_graph[1] = {0, 3, 4};
+    small_graph[2] = {0, 5, 6};
+    small_graph[3] = {1};
+    small_graph[4] = {1};
+    small_graph[5] = {2};
+    small_graph[6] = {2};
 
-    cout << "Parallel BFS Traversal: ";
-    parallel_bfs(0, graph);
+    cout << "Sequential BFS: "; sequential_bfs(0, small_graph, true);
+    cout << "Parallel BFS:   "; parallel_bfs(0, small_graph, true);
+    cout << "Sequential DFS: "; sequential_dfs(0, small_graph, true);
+    cout << "Parallel DFS:   "; parallel_dfs(0, small_graph, true);
+    
+    // 2. LARGE GRAPH (To compare performance)
+    cout << "\n=== Performance Comparison on Large Graph ===" << endl;
+    int n_large = 100000;
+    vector<vector<int>> large_graph(n_large);
+    
+    // Create a large binary tree graph
+    for (int i = 0; i < n_large; ++i) {
+        int left = 2 * i + 1;
+        int right = 2 * i + 2;
+        if (left < n_large) {
+            large_graph[i].push_back(left);
+            large_graph[left].push_back(i);
+        }
+        if (right < n_large) {
+            large_graph[i].push_back(right);
+            large_graph[right].push_back(i);
+        }
+    }
+    
+    cout << "Graph size: " << n_large << " nodes" << endl;
 
-    cout << "Parallel DFS Traversal: ";
-    parallel_dfs(0, graph);
+    measure("Sequential BFS", [&](){ sequential_bfs(0, large_graph, false); });
+    measure("Parallel BFS  ", [&](){ parallel_bfs(0, large_graph, false); });
+    
+    measure("Sequential DFS", [&](){ sequential_dfs(0, large_graph, false); });
+    measure("Parallel DFS  ", [&](){ parallel_dfs(0, large_graph, false); });
 
     return 0;
 }
