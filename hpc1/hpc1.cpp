@@ -11,11 +11,11 @@ using namespace std::chrono;
 
 void sequential_bfs(int start, const vector<vector<int>>& graph, bool print_nodes = false) {
     int n = graph.size();
-    vector<bool> visited(n, false);
+    vector<int> visited(n, 0);
     queue<int> q;
 
     q.push(start);
-    visited[start] = true;
+    visited[start] = 1;
 
     while (!q.empty()) {
         int u = q.front();
@@ -25,7 +25,7 @@ void sequential_bfs(int start, const vector<vector<int>>& graph, bool print_node
 
         for (int v : graph[u]) {
             if (!visited[v]) {
-                visited[v] = true;
+                visited[v] = 1;
                 q.push(v);
             }
         }
@@ -33,8 +33,8 @@ void sequential_bfs(int start, const vector<vector<int>>& graph, bool print_node
     if (print_nodes) cout << endl;
 }
 
-void sequential_dfs_util(int u, const vector<vector<int>>& graph, vector<bool>& visited, bool print_nodes) {
-    visited[u] = true;
+void sequential_dfs_util(int u, const vector<vector<int>>& graph, vector<int>& visited, bool print_nodes) {
+    visited[u] = 1;
     if (print_nodes) cout << u << " ";
 
     for (int v : graph[u]) {
@@ -46,7 +46,7 @@ void sequential_dfs_util(int u, const vector<vector<int>>& graph, vector<bool>& 
 
 void sequential_dfs(int start, const vector<vector<int>>& graph, bool print_nodes = false) {
     int n = graph.size();
-    vector<bool> visited(n, false);
+    vector<int> visited(n, 0);
     sequential_dfs_util(start, graph, visited, print_nodes);
     if (print_nodes) cout << endl;
 }
@@ -56,11 +56,11 @@ void sequential_dfs(int start, const vector<vector<int>>& graph, bool print_node
 
 void parallel_bfs(int start, const vector<vector<int>>& graph, bool print_nodes = false) {
     int n = graph.size();
-    vector<bool> visited(n, false);
+    vector<int> visited(n, 0);
     vector<int> current_level;
 
     current_level.push_back(start);
-    visited[start] = true;
+    visited[start] = 1;
 
     while (!current_level.empty()) {
         vector<int> next_level;
@@ -77,11 +77,11 @@ void parallel_bfs(int start, const vector<vector<int>>& graph, bool print_nodes 
             }
 
             for (int v : graph[u]) {
-                if (!visited[v]) {
-                    #pragma omp critical
-                    {
-                        if (!visited[v]) { // Double-check locking
-                            visited[v] = true;
+                if (visited[v] == 0) {
+                    // Atomic compare and swap to avoid critical section bottleneck and vector<bool> races
+                    if (__sync_bool_compare_and_swap(&visited[v], 0, 1)) {
+                        #pragma omp critical
+                        {
                             next_level.push_back(v);
                         }
                     }
@@ -93,7 +93,7 @@ void parallel_bfs(int start, const vector<vector<int>>& graph, bool print_nodes 
     if (print_nodes) cout << endl;
 }
 
-void parallel_dfs_util(int u, const vector<vector<int>>& graph, vector<bool>& visited, bool print_nodes) {
+void parallel_dfs_util(int u, const vector<vector<int>>& graph, vector<int>& visited, bool print_nodes) {
     if (print_nodes) {
         #pragma omp critical
         {
@@ -102,17 +102,10 @@ void parallel_dfs_util(int u, const vector<vector<int>>& graph, vector<bool>& vi
     }
 
     for (int v : graph[u]) {
-        if (!visited[v]) {
-            bool do_visit = false;
-            #pragma omp critical
-            {
-                if (!visited[v]) { // Double-check locking
-                    visited[v] = true;
-                    do_visit = true;
-                }
-            }
-            if (do_visit) {
-                #pragma omp task
+        if (visited[v] == 0) {
+            // Atomic compare and swap replaces the massive critical section
+            if (__sync_bool_compare_and_swap(&visited[v], 0, 1)) {
+                #pragma omp task shared(graph, visited) firstprivate(v, print_nodes)
                 parallel_dfs_util(v, graph, visited, print_nodes);
             }
         }
@@ -121,8 +114,8 @@ void parallel_dfs_util(int u, const vector<vector<int>>& graph, vector<bool>& vi
 
 void parallel_dfs(int start, const vector<vector<int>>& graph, bool print_nodes = false) {
     int n = graph.size();
-    vector<bool> visited(n, false);
-    visited[start] = true;
+    vector<int> visited(n, 0);
+    visited[start] = 1;
 
     #pragma omp parallel
     {
