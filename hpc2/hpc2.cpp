@@ -39,10 +39,17 @@ void mergeSort(vector<int>& arr, int l, int r, bool parallel) {
     }
 }
 
-auto measure = [](string name, auto func) {
+auto measure = [](string name, vector<int> a, auto sort_func) {
     auto start = high_resolution_clock::now();
-    func();
-    cout << name << ": " << duration_cast<milliseconds>(high_resolution_clock::now() - start).count() << " ms\n";
+    sort_func(a);
+    auto end = high_resolution_clock::now();
+    
+    cout << name << ": " << duration_cast<milliseconds>(end - start).count() << " ms";
+    if (is_sorted(a.begin(), a.end())) {
+        cout << " (Verified)\n";
+    } else {
+        cout << " (FAILED)\n";
+    }
 };
 
 int main() {
@@ -52,16 +59,15 @@ int main() {
     generate(m_arr.begin(), m_arr.end(), rand);
 
     cout << "=== Bubble Sort (" << n_bubble << ") ===\n";
-    measure("Sequential", [&]{ vector<int> a=b_arr; bubbleSort(a, false); });
-    measure("Parallel",   [&]{ vector<int> a=b_arr; bubbleSort(a, true); });
+    measure("Sequential", b_arr, [&](vector<int>& arr){ bubbleSort(arr, false); });
+    measure("Parallel",   b_arr, [&](vector<int>& arr){ bubbleSort(arr, true); });
 
     cout << "\n=== Merge Sort (" << n_merge << ") ===\n";
-    measure("Sequential", [&]{ vector<int> a=m_arr; mergeSort(a, 0, a.size()-1, false); });
-    measure("Parallel",   [&]{ 
-        vector<int> a=m_arr; 
+    measure("Sequential", m_arr, [&](vector<int>& arr){ mergeSort(arr, 0, arr.size()-1, false); });
+    measure("Parallel",   m_arr, [&](vector<int>& arr){ 
         #pragma omp parallel
         #pragma omp single
-        mergeSort(a, 0, a.size()-1, true); 
+        mergeSort(arr, 0, arr.size()-1, true); 
     });
 
     return 0;
