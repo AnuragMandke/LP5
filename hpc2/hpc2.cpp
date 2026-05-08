@@ -46,7 +46,7 @@ auto measure = [](string name, auto func) {
 };
 
 int main() {
-    int n_bubble = 10000, n_merge = 1000000;
+    int n_bubble = 100000, n_merge = 1000000;
     vector<int> b_arr(n_bubble), m_arr(n_merge);
     generate(b_arr.begin(), b_arr.end(), rand);
     generate(m_arr.begin(), m_arr.end(), rand);
